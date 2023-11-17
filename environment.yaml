@@ -1,0 +1,12 @@
+channels:
+  - conda-forge
+dependencies:
+  - pip
+  - ipython
+  - ipykernel
+  - nbformat
+  - ruff
+  - black
+  - pip:
+    - jax[cpu]
+    - flax
