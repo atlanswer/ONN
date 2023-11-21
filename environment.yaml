@@ -5,6 +5,8 @@ dependencies:
   - ipython
   - ipykernel
   - nbformat
+  - tensorboard
+  - matplotlib
   - ruff
   - black
   - pip:
