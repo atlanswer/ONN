@@ -1,3 +1,9 @@
 {
-  "cSpell.words": ["ipykernel", "nbformat", "PRNGKey"]
+  "cSpell.words": [
+    "ipykernel",
+    "nbformat",
+    "numpy",
+    "PRNGKey",
+    "relu"
+  ]
 }

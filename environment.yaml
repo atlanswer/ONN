@@ -1,14 +1,18 @@
 channels:
   - conda-forge
+  - pytorch-nightly
 dependencies:
+  - python
   - pip
   - ipython
   - ipykernel
   - nbformat
-  - tensorboard
   - matplotlib
+  - tensorboard
   - ruff
-  - black
   - pip:
     - jax[cpu]
     - flax
+  - pytorch-nightly::pytorch
+  - pytorch-nightly::torchvision
+  - pytorch-nightly::cpuonly
