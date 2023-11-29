@@ -352,8 +352,8 @@ plt.style.use(["seaborn-v0_8-paper", "./publication.mplstyle"])
 fig, ax = plt.subplots(figsize=(3.5, 3.5))
 
 # Make data.
-pX = np.arange(lower_bounds[0], upper_bounds[0], 1)
-pY = np.arange(lower_bounds[1], upper_bounds[1], 1)
+pX = np.arange(lower_bounds[0], upper_bounds[0], 2)
+pY = np.arange(lower_bounds[1], upper_bounds[1], 2)
 pX, pY = np.meshgrid(pX, pY)
 pZ = np.zeros(pX.shape)
 for i in range(len(pX)):

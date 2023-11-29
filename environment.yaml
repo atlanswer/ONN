@@ -13,6 +13,9 @@ dependencies:
   - pip:
     - jax[cpu]
     - flax
+    - chex
+    - clu
+    - opytimark
   - pytorch-nightly::pytorch
   - pytorch-nightly::torchvision
   - pytorch-nightly::cpuonly

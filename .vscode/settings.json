@@ -1,8 +1,13 @@
 {
   "cSpell.words": [
+    "arange",
+    "chex",
+    "Griewank",
     "ipykernel",
     "nbformat",
     "numpy",
+    "optim",
+    "opytimark",
     "PRNGKey",
     "relu"
   ]
