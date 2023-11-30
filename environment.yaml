@@ -8,14 +8,15 @@ dependencies:
   - ipykernel
   - nbformat
   - matplotlib
-  - tensorboard
   - ruff
   - pip:
     - jax[cpu]
     - flax
     - chex
+    - optax
     - clu
-    - opytimark
+    - tensorflow
+  - tensorboard
   - pytorch-nightly::pytorch
   - pytorch-nightly::torchvision
   - pytorch-nightly::cpuonly

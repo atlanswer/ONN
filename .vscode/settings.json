@@ -6,9 +6,11 @@
     "ipykernel",
     "nbformat",
     "numpy",
+    "optax",
     "optim",
     "opytimark",
     "PRNGKey",
-    "relu"
+    "relu",
+    "Schwefel"
   ]
 }
