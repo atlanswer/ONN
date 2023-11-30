@@ -1,7 +1,8 @@
 # %% Import
-import csv
+import csv  # pyright: ignore
 import os
 import time
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from typing import cast
 
@@ -15,22 +16,23 @@ import torch.optim as optim
 from loguru import logger
 from matplotlib import cm
 
+from antcal.model.slotted_patch import obj_fn
+
 cwd = os.getcwd()
 save_path = os.path.join(cwd, "save")
 logger.add("log.log")
-rng = np.random.default_rng()
 
 
 # %% Init
 # Optimization & hyperparameters
 @dataclass
 class OptParams:
-    n_dims: int = 2
-    s_init: int = 4
+    n_dims: int = 10
+    s_init: int = 6
     n_candidates: int = 3
     n_new_candidates: int = 3
     n_predictors: int = 6
-    n_iters: int = 100
+    n_iters: int = 50
     alpha_mut_ratio: float = 0.4
     n_dims_mut: int = int(alpha_mut_ratio * n_dims) + 1
     n_opt_runs = 1
@@ -40,52 +42,11 @@ class OptParams:
     EPOCHS: int = 2 * int(s_init / BATCH_SIZE) + 1
 
 
-# Cost function
-cost_fn = bf.PichenyGoldsteinAndPrice()
-var_bounds = cast(tuple[list[float], list[float]], cost_fn.suggested_bounds())
-
-
-def v_cost_fn(X: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
-    return np.apply_along_axis(cost_fn, 1, X)  # pyright:ignore
-
-
-# %% Plot 3D
-
-# plt.style.use("default")
-# plt.style.use(["seaborn-v0_8-paper", "./publication.mplstyle"])
-# fig, ax = plt.subplots(figsize=(3.5, 3.5), subplot_kw={"projection": "3d"})
-
-# # Make data.
-# pX = np.arange(lower_bounds[0], upper_bounds[0], 1.0)
-# pY = np.arange(lower_bounds[1], upper_bounds[1], 1.0)
-# pX, pY = np.meshgrid(pX, pY)
-# pZ = np.zeros(pX.shape)
-# for i in range(len(pX)):
-#     for j in range(len(pX[0])):
-#         pZ[i, j] = cost_fn([pX[i, j], pY[i, j]])
-
-# # Plot the surface.
-# surf = ax.plot_surface(pX, pY, pZ, cmap=cm.viridis, linewidth=0, antialiased=True)
-
-# # Customize the z axis.
-# # ax.set_zlim(0, 0)
-# # ax.zaxis.set_major_locator(LinearLocator(10))
-# # A StrMethodFormatter is used automatically
-# # ax.zaxis.set_major_formatter("{x:.02f}")
-# ax.tick_params(axis="x", which="major", pad=-5)
-# ax.tick_params(axis="y", which="major", pad=-3)
-# ax.tick_params(axis="z", which="major", pad=-2)
-# ax.view_init(elev=15, azim=45, roll=0)
-
-# # Add a color bar which maps values to colors.
-# # fig.colorbar(surf, shrink=0.5, aspect=10)
-
-# fig.savefig("fig.pdf", bbox_inches="tight")
-
-
 # %% Functions
 def gen_init_X(
-    opt_params: OptParams, var_bounds: tuple[list[float], list[float]]
+    opt_params: OptParams,
+    var_bounds: tuple[list[float], list[float]],
+    rng: np.random.Generator,
 ) -> npt.NDArray[np.float64]:
     v_r = rng.random((opt_params.s_init, opt_params.n_dims))
     lower_bounds = np.array(var_bounds[0])
@@ -138,8 +99,7 @@ def mutate(
     opt_params: OptParams,
     candidate: npt.NDArray[np.float64],
     var_bounds: tuple[list[float], list[float]],
-    # global_min: np.float64,
-    # global_max: np.float64,
+    rng: np.random.Generator,
 ):
     idx = rng.choice(np.arange(len(candidate)), opt_params.n_dims_mut)
     candidate_mut = candidate
@@ -154,7 +114,10 @@ def mutate(
 
 
 def gen_candidates(
-    opt_params: OptParams, X: npt.NDArray[np.float64], Y: npt.NDArray[np.float64]
+    opt_params: OptParams,
+    X: npt.NDArray[np.float64],
+    Y: npt.NDArray[np.float64],
+    rng: np.random.Generator,
 ):
     idx = np.argpartition(Y, opt_params.n_candidates - 1)
     X_candidates = []
@@ -168,7 +131,7 @@ def gen_candidates(
     # X_max = X_candidates.max()
     X_candidates_mutated = []
     for candidate in X_candidates:
-        X_candidates_mutated.append(mutate(opt_params, candidate, var_bounds))
+        X_candidates_mutated.append(mutate(opt_params, candidate, var_bounds, rng))
     X_candidates_mutated = cast(npt.NDArray[np.float64], np.array(X_candidates_mutated))
     return X_candidates_mutated
 
@@ -177,6 +140,7 @@ def find_new_candidates(
     opt_params: OptParams,
     X_candidates_mut: npt.NDArray[np.float64],
     predictors: list[nn.Sequential],
+    rng: np.random.Generator,
 ):
     new_candidates = []
     predictor = predictors[rng.integers(0, opt_params.n_predictors - 1)]
@@ -194,90 +158,100 @@ def find_new_candidates(
     return new_candidates
 
 
-# def gen_predictors(
-#     X: npt.NDArray[np.float64], Y: npt.NDArray[np.float64], n_predictors: int
-# ):
-#     ...
+# %% main
 
+if __name__ == "__main__":
+    # Cost function
+    def v_cost_fn(X: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+        with ProcessPoolExecutor(3) as executor:
+            result = list(executor.map(cost_fn, X))  # pyright: ignore
 
-# %% Main
+        return np.array(result)
 
-opt_duration = []
-hist_y = []
-hist_loss = []
-hist_x1 = []
-hist_x2 = []
+    opt_duration = []
+    hist_y = []
+    hist_loss = []
+    hist_x1 = []
+    hist_x2 = []
 
-for i_opt in range(n_opts):
-    # torch.manual_seed(i_opt + 1)
+    opt_params = OptParams()
+    rng = np.random.default_rng()
 
-    t_start = time.perf_counter()
+    for i_opt in range(opt_params.n_opt_runs):
+        # torch.manual_seed(i_opt + 1)
 
-    predictors, optimizers = gen_init_predictors(n_predictors, n_dims)
+        t_start = time.perf_counter()
 
-    X = gen_init_X(n_dims, s_init, var_bounds)
-    Y = v_cost_fn(X)
+        predictors, optimizers = gen_init_predictors(opt_params)
 
-    best_ys = [min(Y)]
-    idx_best_y = np.argmin(Y)
-    best_xs = X[idx_best_y]
-    new_candidates, y_new_candidates = X, Y
+        X = gen_init_X(opt_params, var_bounds, rng)  # pyright: ignore[reportUnboundVariable]
+        Y = v_cost_fn(X)  # pyright: ignore[reportUnboundVariable]
 
-    with open(
-        os.path.join(save_path, f"opt_{i_opt}.csv"),
-        mode="a",
-        newline="",
-    ) as csv_file:
-        csv_writer = csv.writer(csv_file)
-        header = ["iter", "x1", "x2", "y", "loss"]
-        csv_writer.writerow(header)
-
-    for iter in range(n_iters):
-        predictors, optimizers, error = update_predictors(
-            predictors, optimizers, new_candidates, y_new_candidates
-        )
-
-        X_candidates_mut = gen_candidates(X, Y, n_candidates)
-        new_candidates = find_new_candidates(
-            X_candidates_mut, predictors, n_predictors, n_new_candidates
-        )
-        y_new_candidates = v_cost_fn(new_candidates)
-
-        X = np.vstack([X, new_candidates])  # pyright: ignore[reportConstantRedefinition]
-        Y = np.hstack([Y, y_new_candidates])  # pyright: ignore[reportConstantRedefinition]
-
-        best_ys.append(min(Y))
+        best_ys = [min(Y)]
         idx_best_y = np.argmin(Y)
-        best_xs = np.vstack([X, X[idx_best_y]])
+        best_xs = X[idx_best_y]
+        new_candidates, y_new_candidates = X, Y
 
-        alpha_mutation = (1 - iter / n_iters) * alpha_mut_ratio
-        n_dims_mut = int(alpha_mutation * n_dims) + 1
+        # with open(
+        #     os.path.join(save_path, f"opt_{i_opt}.csv"),
+        #     mode="a",
+        #     newline="",
+        # ) as csv_file:
+        #     csv_writer = csv.writer(csv_file)
+        #     header = ["iter", "x1", "x2", "y", "loss"]
+        #     csv_writer.writerow(header)
 
-        with open(
-            os.path.join(save_path, f"opt_{i_opt}.csv"),
-            mode="a",
-            newline="",
-        ) as csv_file:
-            csv_writer = csv.writer(csv_file)
-            [x1, x2] = best_xs[-1]
-            y = best_ys[-1]
-            row = [iter, x1, x2, y, f"{error}"]
-            csv_writer.writerow(row)
+        for iter in range(opt_params.n_iters):
+            predictors, optimizers, error = update_predictors(
+                predictors, optimizers, new_candidates, y_new_candidates
+            )
 
-        if iter % 25 == 0:
-            logger.info(f"Iter: {iter}, error: {error}")
-            logger.info(f"x: {best_xs[-1]}, y: {best_ys[-1]}")
+            X_candidates_mut = gen_candidates(opt_params, X, Y, rng)
+            new_candidates = find_new_candidates(
+                opt_params, X_candidates_mut, predictors, rng
+            )
+            y_new_candidates = v_cost_fn(new_candidates)  # pyright: ignore[reportUnboundVariable]
 
-        hist_y.append(y)
-        hist_loss.append(error.item())
+            X = np.vstack([X, new_candidates])  # pyright: ignore[reportConstantRedefinition]
+            Y = np.hstack([Y, y_new_candidates])  # pyright: ignore[reportConstantRedefinition]
 
-    t_finish = time.perf_counter()
-    opt_duration.append(t_finish - t_start)
+            best_ys.append(min(Y))
+            idx_best_y = np.argmin(Y)
+            best_xs = np.vstack([X, X[idx_best_y]])
 
-    hist_x1 = [x[0] for x in X]
-    hist_x2 = [x[1] for x in X]
+            alpha_mutation = (
+                1 - iter / opt_params.n_iters
+            ) * opt_params.alpha_mut_ratio
+            n_dims_mut = int(alpha_mutation * opt_params.n_dims) + 1
 
-# %% Graph
+            # with open(
+            #     os.path.join(save_path, f"opt_{i_opt}.csv"),
+            #     mode="a",
+            #     newline="",
+            # ) as csv_file:
+            #     csv_writer = csv.writer(csv_file)
+            #     [x1, x2] = best_xs[-1]
+            #     y = best_ys[-1]
+            #     row = [iter, x1, x2, y, f"{error}"]
+            #     csv_writer.writerow(row)
+
+            if iter % 25 == 0:
+                logger.info(f"iter: {iter}, error: {error}")
+                logger.info(f"x: {best_xs[-1]}, y: {best_ys[-1]}")
+
+            hist_y.append(best_ys[-1])
+            hist_loss.append(error.item())
+
+        logger.info(f"test: {cost_fn.testLocalMinimum(best_xs[-1])}")  # pyright: ignore[reportUnboundVariable]
+
+        t_finish = time.perf_counter()
+        opt_duration.append(t_finish - t_start)
+        logger.info(f"duration: {opt_duration} (s)")
+
+        hist_x1 = [x[0] for x in X]
+        hist_x2 = [x[1] for x in X]
+
+# %% Graph y
 
 # plt.style.use(["seaborn-v0_8-paper", "./publication.mplstyle"])
 
@@ -304,9 +278,9 @@ for i_opt in range(n_opts):
 
 # fig.savefig("y.svg", bbox_inches="tight")
 
-# %%
+# %% Graph loss
 
-# plt.style.use(["seaborn-v0_8-paper", "./publication.mplstyle"])
+# plt.style.use(["default", "seaborn-v0_8-paper", "./publication.mplstyle"])
 
 # hist_x = np.arange(1, len(hist_y) + 1)
 
@@ -315,13 +289,13 @@ for i_opt in range(n_opts):
 # ax.plot(
 #     hist_x[1:],
 #     hist_loss[1:],
-#     c=cm.Paired(3),
+#     c=cm.Paired(3),  # pyright: ignore
 # )
 
 # ax.set_xlabel("Iteration")
 # ax.set_ylabel("Average Loss")
 
-# ax.set_xlim(0, n_iters)
+# ax.set_xlim(0, opt_params.n_iters)
 # # ax.set_ylim(-40, 0)
 # # ax.set_xticks(np.linspace(23, 25, 5, endpoint=True))
 # # ax.xaxis.set_minor_locator(mpl.ticker.MultipleLocator(1 / 4))
@@ -329,7 +303,8 @@ for i_opt in range(n_opts):
 
 # # ax.legend(loc="lower left", prop={"math_fontfamily": "stix"})
 
-# fig.savefig("loss.svg", bbox_inches="tight")
+# # fig.savefig("loss.svg", bbox_inches="tight")
+# fig.show()
 
 # %% Plot 2D
 

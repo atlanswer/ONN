@@ -19,9 +19,3 @@ hooks = [
     periodic_actions.Profile(logdir=logdir),
 ]
 
-for step in range(total_steps):
-    # writer.write_scalars(step, dict(loss=0.9**step))
-    for hook in hooks:
-        hook(step)
-
-#%%
