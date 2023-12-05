@@ -192,9 +192,7 @@ if __name__ == "__main__":
     opt_params = OptParams()
     time_str = time.strftime(r"%m%d%H%M", time.localtime())
 
-    aedt_queue: asyncio.Queue[Hfss] = asyncio.Queue(maxsize=10)
-    # for _ in range(opt_params.N_SIMULATORS):
-    #     aedt_queue.put_nowait(new_hfss_session())
+    aedt_list: list[Hfss] = [new_hfss_session() for _ in range(opt_params.N_SIMULATORS)]
 
     for i_opt in range(opt_params.n_opt_runs):
         # torch.manual_seed(i_opt + 1)
@@ -202,7 +200,7 @@ if __name__ == "__main__":
         predictors, optimizers = gen_init_predictors(opt_params)
 
         X = gen_init_X(opt_params, VAR_BOUNDS, rng)
-        Y = asyncio.run(submit_tasks(obj_fn, X, 3, aedt_queue))
+        Y = asyncio.run(submit_tasks(obj_fn, X, 3, aedt_list))
 
         best_ys = [min(Y)]
         idx_best_y = np.argmin(Y)
@@ -244,7 +242,7 @@ if __name__ == "__main__":
                 opt_params, X_candidates_mut, predictors, rng
             )
             y_new_candidates = asyncio.run(
-                submit_tasks(obj_fn, new_candidates, 3, aedt_queue)
+                submit_tasks(obj_fn, new_candidates, 3, aedt_list)
             )
 
             X = np.vstack([X, new_candidates])  # pyright: ignore[reportConstantRedefinition]
@@ -285,8 +283,7 @@ if __name__ == "__main__":
         # hist_x1 = [x[0] for x in X]
         # hist_x2 = [x[1] for x in X]
 
-    while not aedt_queue.empty():
-        hfss = aedt_queue.get_nowait()
+    for hfss in aedt_list:
         hfss.close_desktop()
 
 
