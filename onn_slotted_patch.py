@@ -21,7 +21,7 @@ from antcal.model.slotted_patch import (  # pyright: ignore[reportMissingTypeStu
     obj_fn,
 )
 from antcal.pyaedt.hfss import new_hfss_session  # pyright: ignore
-from antcal.utils import submit_tasks  # pyright: ignore[reportMissingTypeStubs]
+from antcal.utils import submit_tasks, refresh_aedt_list  # pyright: ignore[reportMissingTypeStubs]
 from loguru import logger
 from matplotlib import cm  # pyright: ignore
 from pyaedt.hfss import Hfss  # pyright: ignore[reportMissingTypeStubs]
@@ -51,7 +51,7 @@ class OptParams:
     LEARNING_RATE: float = 0.01
     N_MODEL_DIMS: int = 100 * n_dims
     EPOCHS: int = 2 * int(s_init / BATCH_SIZE) + 1
-    N_SIMULATORS = 3
+    N_SIMULATORS = 8
 
 
 # %% Functions
@@ -180,27 +180,16 @@ def find_new_candidates(
 
 
 # %% main
-
-if __name__ == "__main__":
+def main():
     iter_duration = []
-    hist_y = []
-    hist_loss = []
-    hist_x1 = []
-    hist_x2 = []
 
-    rng = np.random.default_rng()
-    opt_params = OptParams()
-    time_str = time.strftime(r"%m%d%H%M", time.localtime())
-
-    aedt_list: list[Hfss] = [new_hfss_session() for _ in range(opt_params.N_SIMULATORS)]
-
-    for i_opt in range(opt_params.n_opt_runs):
+    for _ in range(opt_params.n_opt_runs):
         # torch.manual_seed(i_opt + 1)
 
         predictors, optimizers = gen_init_predictors(opt_params)
 
         X = gen_init_X(opt_params, VAR_BOUNDS, rng)
-        Y = asyncio.run(submit_tasks(obj_fn, X, 3, aedt_list))
+        Y = asyncio.run(submit_tasks(obj_fn, X, opt_params.N_SIMULATORS, aedt_list))
 
         best_ys = [min(Y)]
         idx_best_y = np.argmin(Y)
@@ -231,6 +220,11 @@ if __name__ == "__main__":
             csv_writer.writerow(header)
 
         for iter in range(opt_params.n_iters):
+            if iter != 0 and iter % 3 == 0:
+                logger.debug("Refreshing AEDT list...")
+                refresh_aedt_list(aedt_list)
+                logger.debug("AEDT list refreshed.")
+
             t_start = time.time()
 
             predictors, optimizers, error = update_predictors(
@@ -242,7 +236,7 @@ if __name__ == "__main__":
                 opt_params, X_candidates_mut, predictors, rng
             )
             y_new_candidates = asyncio.run(
-                submit_tasks(obj_fn, new_candidates, 3, aedt_list)
+                submit_tasks(obj_fn, new_candidates, opt_params.N_SIMULATORS, aedt_list)
             )
 
             X = np.vstack([X, new_candidates])  # pyright: ignore[reportConstantRedefinition]
@@ -252,10 +246,10 @@ if __name__ == "__main__":
             idx_best_y = np.argmin(Y)
             best_xs = np.vstack([X, X[idx_best_y]])
 
-            alpha_mutation = (
-                1 - iter / opt_params.n_iters
-            ) * opt_params.alpha_mut_ratio
-            n_dims_mut = int(alpha_mutation * opt_params.n_dims) + 1
+            opt_params.alpha_mut_ratio *= 1 - iter / opt_params.n_iters
+            opt_params.n_dims_mut = (
+                int(opt_params.alpha_mut_ratio * opt_params.n_dims) + 1
+            )
 
             with open(
                 os.path.join(save_path, f"{time_str}.csv"),
@@ -267,9 +261,6 @@ if __name__ == "__main__":
                 y = best_ys[-1]
                 row = [iter, *x, y, f"{error}"]
                 csv_writer.writerow(row)
-
-            hist_y.append(best_ys[-1])
-            hist_loss.append(error.item())
 
             t_finish = time.time()
             t_duration = int(t_finish - t_start)
@@ -283,8 +274,25 @@ if __name__ == "__main__":
         # hist_x1 = [x[0] for x in X]
         # hist_x2 = [x[1] for x in X]
 
+    logger.debug("Cleanup AEDT list.")
     for hfss in aedt_list:
         hfss.close_desktop()
+
+
+if __name__ == "__main__":
+    rng = np.random.default_rng()
+    opt_params = OptParams()
+    time_str = time.strftime(r"%m%d%H%M", time.localtime())
+    aedt_list: list[Hfss] = [
+        new_hfss_session(non_graphical=True) for _ in range(opt_params.N_SIMULATORS)
+    ]
+    try:
+        main()
+    finally:
+        logger.error("Exception occurred.")
+        logger.debug("Cleanup AEDT list.")
+        for hfss in aedt_list:
+            hfss.close_desktop()
 
 
 # %% Graph y
