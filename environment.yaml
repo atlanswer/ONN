@@ -15,8 +15,6 @@ dependencies:
     - chex
     - optax
     - clu
-    - tensorflow
-  - tensorboard
   - pytorch-nightly::pytorch
   - pytorch-nightly::torchvision
   - pytorch-nightly::cpuonly
