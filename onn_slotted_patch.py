@@ -44,7 +44,7 @@ class OptParams:
     n_new_candidates: int = 2 * N_DIMS_SLOTTED_PATCH
     n_predictors: int = N_DIMS_SLOTTED_PATCH
     n_iters: int = 200
-    alpha_mut_ratio: float = 0.4
+    alpha_mut_ratio: float = 0.5
     n_dims_mut: int = int(alpha_mut_ratio * n_dims) + 1
     n_opt_runs = 1
     BATCH_SIZE: int = 32
@@ -179,6 +179,18 @@ def find_new_candidates(
     return new_candidates
 
 
+def cost_fn(
+    opt_params: OptParams, X: npt.NDArray[np.float32], aedt_list: list[Hfss]
+) -> npt.NDArray[np.float32]:
+    return asyncio.run(
+        submit_tasks(obj_fn, X, opt_params.N_SIMULATORS, aedt_list), debug=True
+    )
+
+
+# def cost_fn(opt_params: OptParams, X: npt.NDArray[np.float32], aedt_list: list[Hfss],) -> npt.NDArray[np.float32]:
+#     ...
+
+
 # %% main
 def main():
     iter_duration = []
@@ -189,7 +201,7 @@ def main():
         predictors, optimizers = gen_init_predictors(opt_params)
 
         X = gen_init_X(opt_params, VAR_BOUNDS, rng)
-        Y = asyncio.run(submit_tasks(obj_fn, X, opt_params.N_SIMULATORS, aedt_list))
+        Y = cost_fn(opt_params, X, aedt_list)
 
         best_ys = [min(Y)]
         idx_best_y = np.argmin(Y)
@@ -235,9 +247,7 @@ def main():
             new_candidates = find_new_candidates(
                 opt_params, X_candidates_mut, predictors, rng
             )
-            y_new_candidates = asyncio.run(
-                submit_tasks(obj_fn, new_candidates, opt_params.N_SIMULATORS, aedt_list)
-            )
+            y_new_candidates = cost_fn(opt_params, new_candidates, aedt_list)
 
             X = np.vstack([X, new_candidates])  # pyright: ignore[reportConstantRedefinition]
             Y = np.hstack([Y, y_new_candidates])  # pyright: ignore[reportConstantRedefinition]
@@ -288,11 +298,14 @@ if __name__ == "__main__":
     ]
     try:
         main()
+    except Exception as e:
+        logger.error(f"Exception occurred during main loop: {e}.")
     finally:
-        logger.error("Exception occurred.")
         logger.debug("Cleanup AEDT list.")
         for hfss in aedt_list:
             hfss.close_desktop()
+
+    input("Press ENTER to exit")
 
 
 # %% Graph y

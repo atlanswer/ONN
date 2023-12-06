@@ -8,36 +8,8 @@ import torch.nn as nn
 import torch.optim as optim
 import time
 from loguru import logger
-import os
-
-# import csv
-from antcal.application.helper import new_hfss_session  # pyright: ignore [reportMissingTypeStubs]
-
-cwd = os.getcwd()
-save_path = os.path.join(cwd, "save")
-logger.add("log.log")
-
 
 rng = np.random.default_rng()
-
-# %% Init
-# Optimization parameters
-n_dims = 2
-s_init = 4
-n_candidates = 4
-n_new_candidates = 1
-n_predictors = 5
-n_iters = 200
-alpha_mut_ratio = 0.4
-n_dims_mut = int(alpha_mut_ratio * n_dims) + 1
-n_opts = 10
-
-# Hyperparameters
-
-BATCH_SIZE = 32
-LEARNING_RATE = 0.01
-MODEL_DIMS = 100 * n_dims
-EPOCHS = 2 * int(s_init / BATCH_SIZE) + 1
 
 # Cost function
 cost_fn = Griewank(dims=n_dims)
