@@ -1,37 +1,23 @@
 # %% Import
-# import asyncio
 import csv  # pyright: ignore
 import os
 import time
+# from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from dataclasses import dataclass
-from pathlib import Path
 from typing import cast
 
-import benchmark_functions as bf  # pyright: ignore
-import matplotlib.pyplot as plt  # pyright: ignore
+import benchmark_functions as bf  # pyright: ignore[reportMissingTypeStubs]
+import matplotlib.pyplot as plt
 import numpy as np
 import numpy.typing as npt
 import torch
 import torch.nn as nn
 import torch.optim as optim
-
-# from antcal.model.slotted_patch import (  # pyright: ignore[reportMissingTypeStubs]
-#     N_DIMS_SLOTTED_PATCH,
-#     VAR_BOUNDS,
-#     check_constrains,
-#     obj_fn,
-# )
-# from antcal.pyaedt.hfss import new_hfss_session  # pyright: ignore
-# from antcal.utils import submit_tasks, refresh_aedt_list  # pyright: ignore[reportMissingTypeStubs]
 from loguru import logger
-from matplotlib import cm  # pyright: ignore
-# from pyaedt.hfss import Hfss  # pyright: ignore[reportMissingTypeStubs]
+from matplotlib import cm
 
-# %%
 cwd = os.getcwd()
-save_path = os.path.join(cwd, "save_synthetic")
-save_dir = Path(save_path)
-save_dir.mkdir(exist_ok=True)
+save_path = os.path.join(cwd, "save")
 logger.add("log.log")
 
 
@@ -39,20 +25,53 @@ logger.add("log.log")
 # Optimization & hyperparameters
 @dataclass
 class OptParams:
-    n_dims: int = 8
-    s_init: int = 2 * n_dims
-    n_candidates: int = 2 * n_dims
-    n_new_candidates: int = 2 * n_dims
-    n_predictors: int = 5
+    n_dims: int = 2
+    s_init: int = 6
+    n_candidates: int = 3
+    n_new_candidates: int = 3
+    n_predictors: int = 10
     n_iters: int = 200
-    alpha_mut_ratio: float = 0.3
+    alpha_mut_ratio: float = 0.4
     n_dims_mut: int = int(alpha_mut_ratio * n_dims) + 1
     n_opt_runs = 1
     BATCH_SIZE: int = 32
     LEARNING_RATE: float = 0.01
     N_MODEL_DIMS: int = 100 * n_dims
     EPOCHS: int = 2 * int(s_init / BATCH_SIZE) + 1
-    # N_SIMULATORS = 8
+
+
+# %% Plot 3D
+
+# plt.style.use("default")
+# plt.style.use(["seaborn-v0_8-paper", "./publication.mplstyle"])
+# fig, ax = plt.subplots(figsize=(3.5, 3.5), subplot_kw={"projection": "3d"})
+
+# # Make data.
+# pX = np.arange(lower_bounds[0], upper_bounds[0], 1.0)
+# pY = np.arange(lower_bounds[1], upper_bounds[1], 1.0)
+# pX, pY = np.meshgrid(pX, pY)
+# pZ = np.zeros(pX.shape)
+# for i in range(len(pX)):
+#     for j in range(len(pX[0])):
+#         pZ[i, j] = cost_fn([pX[i, j], pY[i, j]])
+
+# # Plot the surface.
+# surf = ax.plot_surface(pX, pY, pZ, cmap=cm.viridis, linewidth=0, antialiased=True)
+
+# # Customize the z axis.
+# # ax.set_zlim(0, 0)
+# # ax.zaxis.set_major_locator(LinearLocator(10))
+# # A StrMethodFormatter is used automatically
+# # ax.zaxis.set_major_formatter("{x:.02f}")
+# ax.tick_params(axis="x", which="major", pad=-5)
+# ax.tick_params(axis="y", which="major", pad=-3)
+# ax.tick_params(axis="z", which="major", pad=-2)
+# ax.view_init(elev=15, azim=45, roll=0)
+
+# # Add a color bar which maps values to colors.
+# # fig.colorbar(surf, shrink=0.5, aspect=10)
+
+# fig.savefig("fig.pdf", bbox_inches="tight")
 
 
 # %% Functions
@@ -60,19 +79,11 @@ def gen_init_X(
     opt_params: OptParams,
     var_bounds: tuple[list[float], list[float]],
     rng: np.random.Generator,
-) -> npt.NDArray[np.float32]:
+) -> npt.NDArray[np.float64]:
+    v_r = rng.random((opt_params.s_init, opt_params.n_dims))
     lower_bounds = np.array(var_bounds[0])
     upper_bounds = np.array(var_bounds[1])
-    vX = np.array([])
-    for _ in range(opt_params.s_init):
-        while True:
-            v_r = rng.random(opt_params.n_dims)
-            v = lower_bounds + v_r * (upper_bounds - lower_bounds)
-            break
-            # if check_constrains(v):
-            #     break
-        vX = np.vstack([vX, v]) if vX.size else v
-    return vX
+    return lower_bounds + v_r * (upper_bounds - lower_bounds)
 
 
 def gen_init_predictors(
@@ -96,8 +107,8 @@ def gen_init_predictors(
 def update_predictors(
     predictors: list[nn.Sequential],
     optimizers: list[optim.Adam],
-    X: npt.NDArray[np.float32],
-    Y: npt.NDArray[np.float32],
+    X: npt.NDArray[np.float64],
+    Y: npt.NDArray[np.float64],
 ):
     x_tensor = torch.from_numpy(X)
     y_tensor = torch.from_numpy(Y)
@@ -118,29 +129,26 @@ def update_predictors(
 
 def mutate(
     opt_params: OptParams,
-    candidate: npt.NDArray[np.float32],
+    candidate: npt.NDArray[np.float64],
     var_bounds: tuple[list[float], list[float]],
     rng: np.random.Generator,
 ):
-    while True:
-        candidate_mut = candidate.copy()
-        idx = rng.choice(np.arange(len(candidate)), opt_params.n_dims_mut)
-        lower_bounds = np.array(var_bounds[0])[idx]
-        upper_bounds = np.array(var_bounds[1])[idx]
-        candidate_mut[idx] = lower_bounds + rng.random(len(idx)) * (
-            upper_bounds - lower_bounds
-        )
-        # if check_constrains(candidate_mut):
-        #     break
-        break
+    idx = rng.choice(np.arange(len(candidate)), opt_params.n_dims_mut)
+    candidate_mut = candidate
+    lower_bounds = np.array(var_bounds[0])[idx]
+    upper_bounds = np.array(var_bounds[1])[idx]
+    # for i in range(n_dims_mut):
+    # candidate_mut[idx[i]] = global_min + rng.random() * (global_max - global_min)
+    candidate_mut[idx] = lower_bounds + rng.random(len(idx)) * (
+        upper_bounds - lower_bounds
+    )
     return candidate_mut
 
 
 def gen_candidates(
     opt_params: OptParams,
-    X: npt.NDArray[np.float32],
-    Y: npt.NDArray[np.float32],
-    var_bounds: tuple[list[float], list[float]],
+    X: npt.NDArray[np.float64],
+    Y: npt.NDArray[np.float64],
     rng: np.random.Generator,
 ):
     idx = np.argpartition(Y, opt_params.n_candidates - 1)
@@ -149,20 +157,20 @@ def gen_candidates(
     for i in range(opt_params.n_candidates):
         X_candidates.append(X[idx[i]])
         Y_candidates.append(Y[idx[i]])
-    X_candidates = cast(npt.NDArray[np.float32], np.array(X_candidates))
-    Y_candidates = cast(npt.NDArray[np.float32], np.array(Y_candidates))
+    X_candidates = cast(npt.NDArray[np.float64], np.array(X_candidates))
+    Y_candidates = cast(npt.NDArray[np.float64], np.array(Y_candidates))
     # X_min = X_candidates.min()
     # X_max = X_candidates.max()
     X_candidates_mutated = []
     for candidate in X_candidates:
         X_candidates_mutated.append(mutate(opt_params, candidate, var_bounds, rng))
-    X_candidates_mutated = cast(npt.NDArray[np.float32], np.array(X_candidates_mutated))
+    X_candidates_mutated = cast(npt.NDArray[np.float64], np.array(X_candidates_mutated))
     return X_candidates_mutated
 
 
 def find_new_candidates(
     opt_params: OptParams,
-    X_candidates_mut: npt.NDArray[np.float32],
+    X_candidates_mut: npt.NDArray[np.float64],
     predictors: list[nn.Sequential],
     rng: np.random.Generator,
 ):
@@ -171,66 +179,73 @@ def find_new_candidates(
     predictor.eval()
     with torch.no_grad():
         prediction = predictor(torch.from_numpy(np.array(X_candidates_mut)).float())
-        prediction = cast(npt.NDArray[np.float32], prediction.numpy())
+        prediction = cast(npt.NDArray[np.float64], prediction.numpy())
     min_idx = (
         np.argpartition(prediction.transpose(), opt_params.n_new_candidates - 1)
     ).transpose()
     for i in range(opt_params.n_new_candidates):
         new_candidates.extend(X_candidates_mut[min_idx[i]])
-    new_candidates = cast(npt.NDArray[np.float32], np.array(new_candidates))
+    new_candidates = cast(npt.NDArray[np.float64], np.array(new_candidates))
     predictor.train()
     return new_candidates
 
 
 # %% main
-def main():
-    iter_duration = []
 
-    for _ in range(opt_params.n_opt_runs):
+if __name__ == "__main__":
+    # Cost function
+    cost_fn = bf.PichenyGoldsteinAndPrice()
+    var_bounds = cast(tuple[list[float], list[float]], cost_fn.suggested_bounds())
+
+    def v_cost_fn(X: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+        # with ThreadPoolExecutor(16) as executor:
+        #     result = list(executor.map(cost_fn, X))  # pyright: ignore
+
+        return np.apply_along_axis(cost_fn, 1, X)
+
+    opt_duration = []
+    hist_y = []
+    hist_loss = []
+    hist_x1 = []
+    hist_x2 = []
+
+    opt_params = OptParams()
+    rng = np.random.default_rng()
+
+    for i_opt in range(opt_params.n_opt_runs):
         # torch.manual_seed(i_opt + 1)
+
+        t_start = time.perf_counter()
 
         predictors, optimizers = gen_init_predictors(opt_params)
 
-        X = gen_init_X(opt_params, VAR_BOUNDS, rng)
-        Y = cost_fn(opt_params, X)
+        X = gen_init_X(opt_params, var_bounds, rng)  # pyright: ignore[reportUnboundVariable]
+        Y = v_cost_fn(X)  # pyright: ignore[reportUnboundVariable]
 
         best_ys = [min(Y)]
         idx_best_y = np.argmin(Y)
         best_xs = X[idx_best_y]
         new_candidates, y_new_candidates = X, Y
 
-        with open(
-            os.path.join(save_path, f"{time_str}.csv"),
-            mode="a",
-            newline="",
-        ) as csv_file:
-            csv_writer = csv.writer(csv_file)
-            header = [
-                "iter",
-                "x1",
-                "x2",
-                "y",
-                "loss",
-            ]
-            csv_writer.writerow(header)
+        # with open(
+        #     os.path.join(save_path, f"opt_{i_opt}.csv"),
+        #     mode="a",
+        #     newline="",
+        # ) as csv_file:
+        #     csv_writer = csv.writer(csv_file)
+        #     header = ["iter", "x1", "x2", "y", "loss"]
+        #     csv_writer.writerow(header)
 
         for iter in range(opt_params.n_iters):
-            # if iter != 0 and iter % 3 == 0:
-            #     logger.debug("Refreshing AEDT list...")
-            #     refresh_aedt_list(aedt_list)
-            #     logger.debug("AEDT list refreshed.")
-
-            t_start = time.time()
-
             predictors, optimizers, error = update_predictors(
                 predictors, optimizers, new_candidates, y_new_candidates
             )
 
-            X_candidates_mut = gen_candidates(opt_params, X, Y, VAR_BOUNDS, rng)
+            X_candidates_mut = gen_candidates(opt_params, X, Y, rng)
             new_candidates = find_new_candidates(
                 opt_params, X_candidates_mut, predictors, rng
             )
-            y_new_candidates = cost_fn(opt_params, new_candidates)
+            y_new_candidates = v_cost_fn(new_candidates)  # pyright: ignore[reportUnboundVariable]
 
             X = np.vstack([X, new_candidates])  # pyright: ignore[reportConstantRedefinition]
             Y = np.hstack([Y, y_new_candidates])  # pyright: ignore[reportConstantRedefinition]
@@ -239,67 +254,37 @@ def main():
             idx_best_y = np.argmin(Y)
             best_xs = np.vstack([X, X[idx_best_y]])
 
-            opt_params.alpha_mut_ratio *= 1 - iter / opt_params.n_iters
-            opt_params.n_dims_mut = (
-                int(opt_params.alpha_mut_ratio * opt_params.n_dims) + 1
-            )
+            alpha_mutation = (
+                1 - iter / opt_params.n_iters
+            ) * opt_params.alpha_mut_ratio
+            n_dims_mut = int(alpha_mutation * opt_params.n_dims) + 1
 
-            with open(
-                os.path.join(save_path, f"{time_str}.csv"),
-                mode="a",
-                newline="",
-            ) as csv_file:
-                csv_writer = csv.writer(csv_file)
-                best_x = best_xs[-1]
-                best_y = best_ys[-1]
-                row = [iter, *best_x, best_y, f"{error}"]
-                csv_writer.writerow(row)
+            # with open(
+            #     os.path.join(save_path, f"opt_{i_opt}.csv"),
+            #     mode="a",
+            #     newline="",
+            # ) as csv_file:
+            #     csv_writer = csv.writer(csv_file)
+            #     [x1, x2] = best_xs[-1]
+            #     y = best_ys[-1]
+            #     row = [iter, x1, x2, y, f"{error}"]
+            #     csv_writer.writerow(row)
 
-            t_finish = time.time()
-            t_duration = int(t_finish - t_start)
-            logger.debug(
-                f"iter: {iter} | y: {best_y} | error: {error} | duration: {t_duration} s."
-            )
-            iter_duration.append(t_duration)
+            if iter % 25 == 0:
+                logger.info(f"iter: {iter}, error: {error}")
+                logger.info(f"x: {best_xs[-1]}, y: {best_ys[-1]}")
 
-        logger.info(f"duration: {iter_duration} (s)")
+            hist_y.append(best_ys[-1])
+            hist_loss.append(error.item())
 
-        logger.info(obj_fn.testLocalMinimum(best_x))  # pyright: ignore
+        logger.info(f"test: {cost_fn.testLocalMinimum(best_xs[-1])}")  # pyright: ignore[reportUnboundVariable]
 
-        ms = obj_fn.minima()  # pyright: ignore
-        assert ms is not None
-        for m in ms:  # pyright: ignore
-            logger.debug(m)
+        t_finish = time.perf_counter()
+        opt_duration.append(t_finish - t_start)
+        logger.info(f"duration: {opt_duration} (s)")
 
-    # logger.debug("Cleanup AEDT list.")
-    # for hfss in aedt_list:
-    #     hfss.close_desktop()
-
-
-if __name__ == "__main__":
-    rng = np.random.default_rng()
-    opt_params = OptParams()
-    time_str = time.strftime(r"%m%d%H%M", time.localtime())
-    obj_fn = bf.Ackley(opt_params.n_dims)
-    VAR_BOUNDS = cast(tuple[list[float], list[float]], obj_fn.suggested_bounds())
-
-    def cost_fn(
-        opt_params: OptParams, X: npt.NDArray[np.float32]
-    ) -> npt.NDArray[np.float32]:
-        return np.apply_along_axis(obj_fn, 1, X)  # pyright: ignore
-
-    try:
-        main()
-    except Exception as e:
-        logger.error(f"Exception occurred during main loop: {e}.")
-    finally:
-        # logger.debug("Cleanup AEDT list.")
-        # for hfss in aedt_list:
-        #     hfss.close_desktop()
-        ...
-
-    input("Press ENTER to exit")
-
+        hist_x1 = [x[0] for x in X]
+        hist_x2 = [x[1] for x in X]
 
 # %% Graph y
 
