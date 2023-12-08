@@ -47,10 +47,8 @@ class OptParams:
     alpha_mut_ratio: float = 0.5
     n_dims_mut: int = int(alpha_mut_ratio * n_dims) + 1
     n_opt_runs = 1
-    BATCH_SIZE: int = 32
     LEARNING_RATE: float = 0.01
     N_MODEL_DIMS: int = 100 * n_dims
-    EPOCHS: int = 2 * int(s_init / BATCH_SIZE) + 1
     N_SIMULATORS = 8
 
 
@@ -74,7 +72,7 @@ def gen_init_X(
 
 
 def gen_init_predictors(
-    opt_params: OptParams
+    opt_params: OptParams,
 ) -> tuple[list[nn.Sequential], list[optim.Adam]]:
     predictors = []
     optimizers = []
@@ -148,11 +146,13 @@ def gen_candidates(
         Y_candidates.append(Y[idx[i]])
     X_candidates = cast(npt.NDArray[np.float32], np.array(X_candidates))
     Y_candidates = cast(npt.NDArray[np.float32], np.array(Y_candidates))
-    # X_min = X_candidates.min()
-    # X_max = X_candidates.max()
     X_candidates_mutated = []
+    lower_bounds = np.min(X_candidates, axis=0)
+    upper_bounds = np.max(X_candidates, axis=0)
     for candidate in X_candidates:
-        X_candidates_mutated.append(mutate(opt_params, candidate, var_bounds, rng))
+        X_candidates_mutated.append(
+            mutate(opt_params, candidate, (lower_bounds, upper_bounds), rng)
+        )
     X_candidates_mutated = cast(npt.NDArray[np.float32], np.array(X_candidates_mutated))
     return X_candidates_mutated
 
@@ -306,91 +306,3 @@ if __name__ == "__main__":
             hfss.close_desktop()
 
     input("Press ENTER to exit")
-
-
-# %% Graph y
-
-# plt.style.use(["seaborn-v0_8-paper", "./publication.mplstyle"])
-
-# hist_x = np.arange(1, len(hist_y) + 1)
-
-# fig, ax = plt.subplots(figsize=(3.5, 2))
-
-# ax.plot(
-#     hist_x,
-#     hist_y,
-#     c=cm.Paired(1),
-# )
-
-# ax.set_xlabel("Iteration")
-# ax.set_ylabel("Cost Function")
-
-# ax.set_xlim(0, n_iters)
-# # ax.set_ylim(-40, 0)
-# # ax.set_xticks(np.linspace(23, 25, 5, endpoint=True))
-# # ax.xaxis.set_minor_locator(mpl.ticker.MultipleLocator(1 / 4))
-# ax.grid(which="minor", linestyle=":", alpha=0.5)
-
-# # ax.legend(loc="lower left", prop={"math_fontfamily": "stix"})
-
-# fig.savefig("y.svg", bbox_inches="tight")
-
-# %% Graph loss
-
-# plt.style.use(["default", "seaborn-v0_8-paper", "./publication.mplstyle"])
-
-# hist_x = np.arange(1, len(hist_y) + 1)
-
-# fig, ax = plt.subplots(figsize=(3.5, 2))
-
-# ax.plot(
-#     hist_x[1:],
-#     hist_loss[1:],
-#     c=cm.Paired(3),  # pyright: ignore
-# )
-
-# ax.set_xlabel("Iteration")
-# ax.set_ylabel("Average Loss")
-
-# ax.set_xlim(0, opt_params.n_iters)
-# # ax.set_ylim(-40, 0)
-# # ax.set_xticks(np.linspace(23, 25, 5, endpoint=True))
-# # ax.xaxis.set_minor_locator(mpl.ticker.MultipleLocator(1 / 4))
-# ax.grid(which="minor", linestyle=":", alpha=0.5)
-
-# # ax.legend(loc="lower left", prop={"math_fontfamily": "stix"})
-
-# # fig.savefig("loss.svg", bbox_inches="tight")
-# fig.show()
-
-# %% Plot 2D
-
-# plt.style.use("default")
-# plt.style.use(["seaborn-v0_8-paper", "./publication.mplstyle"])
-# fig, ax = plt.subplots(figsize=(3.5, 3.5))
-
-# # Make data.
-# pX = np.arange(lower_bounds[0], upper_bounds[0], 2)
-# pY = np.arange(lower_bounds[1], upper_bounds[1], 2)
-# pX, pY = np.meshgrid(pX, pY)
-# pZ = np.zeros(pX.shape)
-# for i in range(len(pX)):
-#     for j in range(len(pX[0])):
-#         pZ[i, j] = cost_fn([pX[i, j], pY[i, j]])
-
-# # Plot the surface.
-# ax.pcolormesh(pX, pY, pZ, cmap=cm.viridis, linewidth=0, antialiased=True)
-# ax.plot(hist_x1, hist_x2, "o", markersize=3, c=cm.Paired(8))
-
-# ax.set_xlim(lower_bounds[0], upper_bounds[0])
-# ax.set_ylim(lower_bounds[1], upper_bounds[1])
-# # A StrMethodFormatter is used automatically
-# # ax.zaxis.set_major_formatter("{x:.02f}")
-# # ax.tick_params(axis="x", which="major", pad=-5)
-# # ax.tick_params(axis="y", which="major", pad=-3)
-# # ax.tick_params(axis="z", which="major", pad=-2)
-
-# # Add a color bar which maps values to colors.
-# # fig.colorbar(surf, shrink=0.5, aspect=10)
-
-# fig.savefig("map.pdf", bbox_inches="tight")
