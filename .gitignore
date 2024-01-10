@@ -161,6 +161,8 @@ cython_debug/
 
 # temporary files
 tmp
+*.svg
+*.pdf
 
 # save
 save*

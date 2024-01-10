@@ -49,7 +49,7 @@ class OptParams:
     n_opt_runs = 1
     LEARNING_RATE: float = 0.01
     N_MODEL_DIMS: int = 100 * n_dims
-    N_SIMULATORS = 8
+    N_SIMULATORS = 4
 
 
 # %% Functions

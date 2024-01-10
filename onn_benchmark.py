@@ -27,7 +27,7 @@ logger.add("log.log")
 # Optimization & hyperparameters
 @dataclass
 class OptParams:
-    n_dims: int = 2
+    n_dims: int = 12
     s_init: int = 2 * n_dims
     n_candidates: int = 2 * n_dims
     n_new_candidates: int = 2 * n_dims
@@ -134,10 +134,10 @@ def gen_candidates(
     upper_bounds = np.max(X_candidates, axis=0)
     # upper_bounds = [X_candidates.max()] * opt_params.n_dims
     for x_candidate in X_candidates:
-        # X_candidates_mut.append(mutate(opt_params, x_candidate, var_bounds, rng))
-        X_candidates_mut.append(
-            mutate(opt_params, x_candidate, (lower_bounds, upper_bounds), rng)
-        )
+        X_candidates_mut.append(mutate(opt_params, x_candidate, var_bounds, rng))
+        # X_candidates_mut.append(
+        #     mutate(opt_params, x_candidate, (lower_bounds, upper_bounds), rng)
+        # )
     X_candidates_mut = cast(npt.NDArray[np.float32], np.array(X_candidates_mut))
     return X_candidates_mut
 
@@ -256,7 +256,7 @@ if __name__ == "__main__":
     rng = np.random.default_rng()
     opt_params = OptParams()
     time_str = time.strftime(r"%m%d%H%M", time.localtime())
-    obj_fn = bf.Schwefel(opt_params.n_dims)
+    obj_fn = bf.Ackley(opt_params.n_dims)
     VAR_BOUNDS = cast(tuple[list[float], list[float]], obj_fn.suggested_bounds())
 
     def cost_fn(

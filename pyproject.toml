@@ -1,0 +1,51 @@
+[project]
+name = "ONN"
+dynamic = ["version"]
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "License :: Other/Proprietary License",
+    "Programming Language :: Python :: 3.11",
+    "Typing :: Typed",
+]
+dependencies = [
+    "loguru",              # Logging tool
+    "orjson",              # Fast JSON
+]
+
+[project.optional-dependencies]
+dev = [
+    "conda-lock", # Dependency lock
+    "ruff",       # Linter and formatter
+    "pyright",    # Type checker
+    "ipython",    # Interactive Python console
+    "ipykernel",  # Notebook support
+]
+
+[tool.conda-lock]
+channels = ["conda-forge"]
+platforms = ["win-64"]
+
+[tool.conda-lock.dependencies]
+python = ">=3.11"
+pip = "*"
+
+[tool.ruff]
+line-length = 80
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle
+    "F",   # Pyflakes
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "SIM", # flake8-simplify
+    "I",   # isort
+]
+ignore = []
+
+[tool.pyright]
+typeCheckingMode = "strict"
